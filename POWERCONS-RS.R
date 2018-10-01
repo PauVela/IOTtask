@@ -29,8 +29,7 @@ library(readr)
 library(readr)
 
 household_power_consumption <- read_delim("household_power_consumption.txt", 
-                                          ";", escape_double = FALSE, col_types = cols(Date = col_date(format = "%d/%m/%Y"), 
-                                                                                       Time = col_time(format = "%H:%M:%S")), 
+                                          ";", escape_double = FALSE, 
                                           trim_ws = TRUE)
 View(household_power_consumption)
 View(household_power_consumption)
@@ -41,19 +40,25 @@ View(household_power_consumption)
 
 ##creating a column with date+time##
 HPC<- household_power_consumption
-View(HPC)
-HPC$Date_Time <- paste(HPC$Date,HPC$Time)
-HPC$Date_Time <- strptime(HPC$Date_Time, "%Y-%m-%d %H:%M:%S")
+HPC <-cbind(HPC,paste(HPC$Date,HPC$Time), stringsAsFactors=FALSE)
+colnames(HPC)[10] <-"DateTime"
+
 HPC <- HPC[,c(ncol(HPC), 1:(ncol(HPC)-1))]
-class(HPC$Date_Time)
-
-
+head(HPC)
+HPC$DateTime <- strptime(HPC$DateTime, "%d/%m/%Y %H:%M:%S")
+HPC$Date <- as.Date(HPC$Date, "%d/%m/%Y")
+str(HPC)
+HPC$DateTime <- as.POSIXct(HPC$DateTime,
+                            format = "%Y-%m-%d %H:%M%:%S", tz = "Europe/Paris")
+str(HPC)
 ##Create a column with Month and Year###
 HPC$Month <- month(HPC$Date_Time)
 HPC<-HPC[,c(ncol(HPC),1:(ncol(HPC)-1))]
 HPC$Year <- year(HPC$Date_Time)
 HPC<-HPC[,c(ncol(HPC),1:(ncol(HPC)-1))]
 HPC$Hour<-hour(HPC$Time)
+HPC$Day<-day(HPC$Date)
+HPC$WeekDay<-weekdays(HPC$Date)
 HPC$month<-month(HPC$Date)
 HPC$months<-months(HPC$Date)
 
@@ -61,14 +66,18 @@ HPC$months<-months(HPC$Date)
 ##Data info##
 View(HPC)
 summary(HPC) ##na's problems##
+which(is.na(HPC))
+##removing NA##
+HPC<-na.locf(HPC,na.rm=FALSE,maxgap=1440)
+HPC[is.na(HPC)] <- 0
+summary(HPC)
 length(HPC)
 summary(HPC$Global_active_power)
 str(HPC)
 options(scipen = 999)
 with(HPC, hist(Global_active_power, main = "Global Active Power", xlab = "Global Active Power (kilowatts)", ylab = "Frequency", col = "red"))
 plot(x = HPC$Date_Time, y = HPC$Global_active_power, type = "l", xlab = "", ylab = "Global Active Power (kilowatts)")
-HPC$Date_Time <- as.POSIXct(HPC$Date_Time,
-                           format = "%Y-%m-%d %H:%M%:%S", tz = "Europe/Paris")
+
 ##HeatMap to look at NA's##
 source("https://raw.githubusercontent.com/iascchen/VisHealth/master/R/calendarHeat.R")
 source("calendarHeat.R")
@@ -92,32 +101,42 @@ HPC<- HPC %>%
 
 HPC$Global_powerKwh <- HPC$Global_active_powerKWh+HPC$Global_reactive_powerKWh
 
-##removing NA##
 
-HPC_2<- HPC
-HPC_2<- na.omit(HPC)
+####Database creation####
 
-##info by year##
-####2007 info####
-
+##year##
+HPC_2<-HPC
 HPC_y <- HPC_2 %>% select(Year,month,Global_powerKwh,Global_active_powerKWh,Global_reactive_powerKWh,Sub_metering1KW,Sub_metering2KW,Sub_metering3KW)%>%
   group_by(Year)%>%
   filter(Year!=2006)%>%
   summarise_at(vars(Global_powerKwh,Global_active_powerKWh,Global_reactive_powerKWh,Sub_metering1KW,Sub_metering2KW,Sub_metering3KW),
                funs(sum))
-
+##month and year##
 HPC_my <- HPC_2 %>% select(Year,month,months,Global_powerKwh,Global_active_powerKWh,Global_reactive_powerKWh,Sub_metering1KW,Sub_metering2KW,Sub_metering3KW)%>%
   group_by(Year,month)%>%
   filter(Year!=2006)%>%
   summarise_at(vars(Global_powerKwh,Global_active_powerKWh,Global_reactive_powerKWh,Sub_metering1KW,Sub_metering2KW,Sub_metering3KW),
                funs(sum))
-
+##transform month in english and with order##
 HPC_my<- transform(HPC_my, MonthAbb = month.abb[month])
 HPC_my$MonthAbb <-factor(HPC_my$MonthAbb,
                              levels = c("Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                                        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
-
-
+                                       "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
+##Day##
+HPC_d<-HPC_2 %>% select(Year,month,months,Day,WeekDay,Global_powerKwh,Global_active_powerKWh,Global_reactive_powerKWh,Sub_metering1KW,Sub_metering2KW,Sub_metering3KW)%>%
+  group_by(Year,Day)%>%
+  filter(Year!=2006)%>%
+  summarise_at(vars(Global_powerKwh,Global_active_powerKWh,Global_reactive_powerKWh,Sub_metering1KW,Sub_metering2KW,Sub_metering3KW),
+               funs(sum))
+##Hour##
+HPC_hour<-HPC_2 %>% select(Year,month,months,Day,Hour,WeekDay,Global_powerKwh,Global_active_powerKWh,Global_reactive_powerKWh,Sub_metering1KW,Sub_metering2KW,Sub_metering3KW)%>%
+  group_by(Year,Hour)%>%
+  filter(Year!=2006)%>%
+  summarise_at(vars(Global_powerKwh,Global_active_powerKWh,Global_reactive_powerKWh,Sub_metering1KW,Sub_metering2KW,Sub_metering3KW),
+               funs(sum))
+##PLOTS##
+####Year####
+##global power monthly by year##
 ggplot(data=HPC_my, aes(x=MonthAbb,y=Global_powerKwh, group=Year,colour=Year)) +
   geom_line()+theme_bw()+xlab("Month")+ylab("Global Power in KW/h")+ggtitle("Global Power by Months")+
   geom_point()+facet_wrap(facets = Year ~ .)
@@ -126,8 +145,120 @@ ggplot(data=HPC_my, aes(x=MonthAbb, y=Global_powerKwh, group=Year,colour=Year)) 
   geom_line()+theme_bw()+
   geom_point()+facet_grid(facets = Year ~ ., margins = FALSE)
 
-ggplot(data=HPC_my, aes(x=MonthAbb,y=Sub_metering1KW, group=Year,colour=Year)) +
-  geom_line()+theme_bw()+xlab("Month")+ylab("Sub meterings")+ggtitle("Sub meterings")+
-  geom_point()+facet_wrap(facets = Year ~ .)
+####Month####
+##Reactive and Active power by month##
+ggplot(data=HPC_my, aes(HPC_my$MonthAbb,group=1))+
+geom_line(aes(y=HPC_my$Global_reactive_powerKWh,color="Global Reactive power"))+
+  geom_line(aes(y=HPC_my$Global_active_powerKWh,color="Global Active power"))+
+  theme_bw()+
+xlab("Month")+
+ylab("Global Active and Reactive in KW/h")+
+ggtitle("Global Active and Reactive by Months")+
+facet_wrap(facets = Year ~ .)
+##Reactive by month##
+ggplot(data=HPC_my, aes(HPC_my$MonthAbb,group=1))+
+  geom_line(aes(y=HPC_my$Global_reactive_powerKWh,color="Global Reactive power"))+
+  theme_bw()+
+  xlab("Month")+
+  ylab("Reactive in KW/h")+
+  ggtitle("Reactive by Months")+
+  facet_wrap(facets = Year ~ .)
 
+##sub metters 1,2,3 by month##
 
+ggplot(data=HPC_my, aes(HPC_my$MonthAbb,group=1))+
+  geom_line(aes(y=HPC_my$Sub_metering1KW,color="Kitchen"))+
+  geom_line(aes(y=HPC_my$Sub_metering2KW,color="Laundry Room"))+
+  geom_line(aes(y=HPC_my$Sub_metering3KW,color="Water Heater and Air-Conditioner"))+
+  theme_bw()+
+  xlab("Month")+
+  ylab("Global Consumption in KW/h")+
+  ggtitle("Global Consumption Monthly by Sub Metering")+
+  facet_wrap(facets = Year ~ .)
+
+####Day####
+##Reactive and Active power by Day##
+ggplot(data=HPC_d, aes(HPC_d$Day))+
+  geom_line(aes(y=HPC_d$Global_reactive_powerKWh,color="Global Reactive power"))+
+  geom_line(aes(y=HPC_d$Global_active_powerKWh,color="Global Active power"))+
+  theme_bw()+
+  xlab("Day")+
+  ylab("Global Active and Reactive in KW/h")+
+  ggtitle("Global Active and Reactive by Day")+
+  facet_wrap(facets = Year ~ .)
+##reactive alone##
+ggplot(data=HPC_d, aes(HPC_d$Day))+
+  geom_line(aes(y=HPC_d$Global_reactive_powerKWh,color="Global Reactive power"))+
+  theme_bw()+
+  xlab("Day")+
+  ylab("Global Reactive in KW/h")+
+  ggtitle("Global Reactive by Day")+
+  facet_wrap(facets = Year ~ .)
+##active alone##
+ggplot(data=HPC_d, aes(HPC_d$Day))+
+  geom_line(aes(y=HPC_d$Global_active_powerKWh,color="Global Active power"))+
+  theme_bw()+
+  xlab("Day")+
+  ylab("Global Active in KW/h")+
+  ggtitle("Global Active by Day")+
+  facet_wrap(facets = Year ~ .)
+##sub metters 1,2,3 by Day##
+
+ggplot(data=HPC_d, aes(HPC_d$Day))+
+  geom_line(aes(y=HPC_d$Sub_metering1KW,color="Kitchen"))+
+  geom_line(aes(y=HPC_d$Sub_metering2KW,color="Laundry Room"))+
+  geom_line(aes(y=HPC_d$Sub_metering3KW,color="Water Heater and Air-Conditioner"))+
+  theme_bw()+
+  xlab("Day")+
+  ylab("Global Consumption in KW/h")+
+  ggtitle("Global Consumption Daily by Sub Metering")+
+  facet_wrap(facets = Year ~ .)
+####Hour####
+####Reactive and Active power by Hour####
+ggplot(data=HPC_hour, aes(HPC_hour$Hour))+
+  geom_line(aes(y=HPC_hour$Global_reactive_powerKWh,color="Global Reactive power"))+
+  geom_line(aes(y=HPC_hour$Global_active_powerKWh,color="Global Active power"))+
+  theme_bw()+
+  xlab("Hour")+
+  ylab("Global Active and Reactive in KW/h")+
+  ggtitle("Global Active and Reactive by Day")+
+  facet_wrap(facets = Year ~ .)
+##Reactive by Hour##
+ggplot(data=HPC_hour, aes(HPC_hour$Hour))+
+  geom_line(aes(y=HPC_hour$Global_reactive_powerKWh,color="Global Reactive power"))+
+  theme_bw()+
+  xlab("Hour")+
+  ylab("Global Reactive in KW/h")+
+  ggtitle("Global Reactive by Hour")+
+  facet_wrap(facets = Year ~ .)
+##Active by Hour##
+ggplot(data=HPC_hour, aes(HPC_hour$Hour))+
+  geom_line(aes(y=HPC_hour$Global_active_powerKWh,color="Global Active power"))+
+  theme_bw()+
+  xlab("Hour")+
+  ylab("Global Active in KW/h")+
+  ggtitle("Global Active by Hour")+
+  facet_wrap(facets = Year ~ .)
+##Sub meters by Hour##
+ggplot(data=HPC_hour, aes(HPC_hour$Hour))+
+  geom_line(aes(y=HPC_hour$Sub_metering1KW,color="Kitchen"))+
+  geom_line(aes(y=HPC_hour$Sub_metering2KW,color="Laundry Room"))+
+  geom_line(aes(y=HPC_hour$Sub_metering3KW,color="Water Heater and Air-Conditioner"))+
+  theme_bw()+
+  xlab("Hour")+
+  ylab("Global Consumption in KW/h")+
+  ggtitle("Global Consumption Hourly by Sub Metering")+
+  facet_wrap(facets = Year ~ .)
+
+##submeters with reactive##
+ggplot(data=HPC_hour, aes(HPC_hour$Hour))+
+  geom_line(aes(y=HPC_hour$Global_reactive_powerKWh,color="Global Reactive power"))+
+  theme_bw()+
+  geom_line(aes(y=HPC_hour$Sub_metering1KW,color="Kitchen"))+
+  geom_line(aes(y=HPC_hour$Sub_metering2KW,color="Laundry Room"))+
+  geom_line(aes(y=HPC_hour$Sub_metering3KW,color="Water Heater and Air-Conditioner"))+
+  theme_bw()+
+  xlab("Hour")+
+  ylab("Global Consumption in KW/h")+
+  ggtitle("Global Consumption Hourly by Sub Metering")+
+  facet_wrap(facets = Year ~ .)
