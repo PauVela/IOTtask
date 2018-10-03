@@ -50,6 +50,8 @@ HPC$Date <- as.Date(HPC$Date, "%d/%m/%Y")
 str(HPC)
 HPC$DateTime <- as.POSIXct(HPC$DateTime,
                             format = "%Y-%m-%d %H:%M%:%S", tz = "Europe/Paris")
+
+HPC$Date_Time<-ymd_hms(paste(HPC$Date,HPC$Time))
 str(HPC)
 ##Create a column with Month and Year###
 HPC$Month <- month(HPC$Date_Time)
@@ -61,6 +63,36 @@ HPC$Day<-day(HPC$Date)
 HPC$WeekDay<-weekdays(HPC$Date)
 HPC$month<-month(HPC$Date)
 HPC$months<-months(HPC$Date)
+
+
+##Hour Change##
+HPCHOURCHANGE<-HPC
+HPCpart2007march<-HPC %>% select(Date_Time,Date,Hour)  %>%
+  filter(Date >= "2007-03-25" & Date <="2007-03-26") ##hour change at 2am
+
+HPCHOURCHANGE<-mutate(HPCHOURCHANGE, Date_Time=
+ifelse(Date_Time >= as_datetime('2007-03-25 02:00:00') & Date_Time <= as_datetime('2007-10-28 01:59:00'),Date_Time+ hours(1),
+ifelse(Date_Time >= as_datetime('2008-03-30 02:00:00') & Date_Time <= as_datetime('2008-10-26 01:59:00'),Date_Time+ hours(1),
+ifelse(Date_Time >= as_datetime('2009-03-29 02:00:00') & Date_Time <= as_datetime('2009-10-29 01:59:00'),Date_Time+ hours(1),
+ifelse(Date_Time >= as_datetime('2010-03-28 02:00:00') & Date_Time <= as_datetime('2010-10-31 01:59:00'),Date_Time+ hours(1),Date_Time )))))
+
+
+
+##GETSEASON##
+
+getSeason<- function(DATES){
+  WS <- as.Date("2012-12-15", format = "%Y-%m-%d") #Winter Solstice
+  SE <- as.Date("2012-3-15", format = "%Y-%m-%d") #Spring Equinox
+  SS <- as.Date("2012-6-15", format = "%Y-%m-%d") #Summer Solstice
+  FE <- as.Date("2012-9-15",  format = "%Y-%m-%d") # Fall Equinox
+  
+  # Convert dates from the others years into 2012 dates
+  d<- as.Date(strftime(DATES, format="2012-%m-%d"))
+  
+  ifelse (d >= WS | d < SE, "Winter",
+          ifelse (d >= SE & d < SS, "Spring",
+                  ifelse (d >= SS & d < FE, "Summer", "Fall"))) 
+}
 
 
 ##Data info##
@@ -134,6 +166,9 @@ HPC_hour<-HPC_2 %>% select(Year,month,months,Day,Hour,WeekDay,Global_powerKwh,Gl
   filter(Year!=2006)%>%
   summarise_at(vars(Global_powerKwh,Global_active_powerKWh,Global_reactive_powerKWh,Sub_metering1KW,Sub_metering2KW,Sub_metering3KW),
                funs(sum))
+
+##Seasonal##
+
 ##PLOTS##
 ####Year####
 ##global power monthly by year##
@@ -250,10 +285,8 @@ ggplot(data=HPC_hour, aes(HPC_hour$Hour))+
   ggtitle("Global Consumption Hourly by Sub Metering")+
   facet_wrap(facets = Year ~ .)
 
-##submeters with reactive##
+##submeters Hour##
 ggplot(data=HPC_hour, aes(HPC_hour$Hour))+
-  geom_line(aes(y=HPC_hour$Global_reactive_powerKWh,color="Global Reactive power"))+
-  theme_bw()+
   geom_line(aes(y=HPC_hour$Sub_metering1KW,color="Kitchen"))+
   geom_line(aes(y=HPC_hour$Sub_metering2KW,color="Laundry Room"))+
   geom_line(aes(y=HPC_hour$Sub_metering3KW,color="Water Heater and Air-Conditioner"))+
