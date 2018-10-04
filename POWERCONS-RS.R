@@ -5,14 +5,17 @@ install.packages("arulesViz",dependencies = c("Depends", "Suggests"))
 pacman::p_load( corrplot, data.table, party, caret, dplyr, arules, prabclus, trimcluster)
 if(!require("RColorBrewer")){install.packages("RColorBrewer")}
 if(!require("tidyr")){install.packages("tidyr")}
-install.packages("dplyr")
 install.packages("plotly")
 install.packages("tidyr")
 install.packages("chron")
 install.packages("ggplot2")
-install.packages("ggplot")
+install.packages("lubridate")
+install.packages("zoo")
+install.packages("DescTools")
 ####Load Data####
+library(DescTools)
 library(dplyr)
+library(zoo)
 library(caret)
 library(arules)
 library(arulesViz)
@@ -26,15 +29,9 @@ library(chron)
 library(lubridate)
 library(readr)
 
-library(readr)
-
 household_power_consumption <- read_delim("household_power_consumption.txt", 
-                                          ";", escape_double = FALSE, 
-                                          trim_ws = TRUE)
+                                          ";", escape_double = FALSE, trim_ws = TRUE)
 View(household_power_consumption)
-View(household_power_consumption)
-
-
 
 ####pre-process####
 
@@ -66,11 +63,11 @@ HPC$months<-months(HPC$Date)
 
 
 ##Hour Change##
-HPCHOURCHANGE<-HPC
-HPCpart2007march<-HPC %>% select(Date_Time,Date,Hour)  %>%
+
+HPC %>% select(Date_Time,Date,Hour)  %>%
   filter(Date >= "2007-03-25" & Date <="2007-03-26") ##hour change at 2am
 
-HPCHOURCHANGE<-mutate(HPCHOURCHANGE, Date_Time=
+HPC<-mutate(HPC, Date_Time=
 ifelse(Date_Time >= as_datetime('2007-03-25 02:00:00') & Date_Time <= as_datetime('2007-10-28 01:59:00'),Date_Time+ hours(1),
 ifelse(Date_Time >= as_datetime('2008-03-30 02:00:00') & Date_Time <= as_datetime('2008-10-26 01:59:00'),Date_Time+ hours(1),
 ifelse(Date_Time >= as_datetime('2009-03-29 02:00:00') & Date_Time <= as_datetime('2009-10-29 01:59:00'),Date_Time+ hours(1),
@@ -80,22 +77,20 @@ ifelse(Date_Time >= as_datetime('2010-03-28 02:00:00') & Date_Time <= as_datetim
 
 ##GETSEASON##
 
-getSeason<- function(DATES){
-  WS <- as.Date("2012-12-15", format = "%Y-%m-%d") #Winter Solstice
-  SE <- as.Date("2012-3-15", format = "%Y-%m-%d") #Spring Equinox
-  SS <- as.Date("2012-6-15", format = "%Y-%m-%d") #Summer Solstice
-  FE <- as.Date("2012-9-15",  format = "%Y-%m-%d") # Fall Equinox
-  
-  # Convert dates from the others years into 2012 dates
-  d<- as.Date(strftime(DATES, format="2012-%m-%d"))
-  
-  ifelse (d >= WS | d < SE, "Winter",
-          ifelse (d >= SE & d < SS, "Spring",
-                  ifelse (d >= SS & d < FE, "Summer", "Fall"))) 
-}
+Winter <- as_date("2008-12-21") #Winter Solstice
+Spring <- as_date("2008-3-20") #Spring Equinox
+Summer <- as_date("2008-6-21") #Summer Solstice
+Autumn <- as_date("2008-9-22") # Fall Equinox
 
+seasondates<-as_date(format(HPC$Date,"%2008-%m-%d"))
 
-##Data info##
+HPC$Season<-ifelse(seasondates>=as.Date(Autumn) &  seasondates<=as.Date(Winter), "Autumn",
+                          ifelse(seasondates>=as.Date(Spring) & seasondates<=as.Date(Summer), "Spring",
+                                 ifelse(seasondates>=as.Date(Summer) & seasondates<=as.Date(Autumn), "Summer","Winter")))
+
+HPC$Season<-as.factor(HPC$Season)
+
+####Data info####
 View(HPC)
 summary(HPC) ##na's problems##
 which(is.na(HPC))
@@ -115,9 +110,6 @@ source("https://raw.githubusercontent.com/iascchen/VisHealth/master/R/calendarHe
 source("calendarHeat.R")
 calendarHeat2<-calendarHeat
 calendarHeat(HPC$Date, HPC$Global_reactive_power, varname="Global_reActive_Power")
-##look at numbers with a small part of a database##
-HPCDay<-HPC[HPC$Date>="2009-02-26" & HPC$Date<="2009-03-03",]
-plot(x = HPCDay$Date_Time, y = HPCDay$Global_active_power, type = "l", xlab = "", ylab = "Global Active Power (kilowatts)")
 ####summarise####
 ##pre-process##
 HPC<- HPC %>%
@@ -132,8 +124,18 @@ HPC<- HPC %>%
   mutate(Global_reactive_powerKWh=((HPC$Global_reactive_power/60)))
 
 HPC$Global_powerKwh <- HPC$Global_active_powerKWh+HPC$Global_reactive_powerKWh
-
-
+#####box-plot####
+#outliers
+boxplot(HPC$Global_active_powerKWh)
+Outlier(HPC$Global_active_powerKWh, method = c("boxplot"), na.rm = FALSE)
+boxplot(HPC$Global_reactive_powerKWh)
+Outlier(HPC$Global_reactive_powerKWh, method = c("boxplot"), na.rm = FALSE)
+boxplot(HPC$Sub_metering1KW)
+Outlier(HPC$Sub_metering1KW, method = c("boxplot"), na.rm = FALSE)
+boxplot(HPC$Sub_metering2KW)
+Outlier(HPC$Sub_metering2KW, method = c("boxplot"), na.rm = FALSE)
+boxplot(HPC$Sub_metering3KW)
+Outlier(HPC$Sub_metering3KW, method = c("boxplot"), na.rm = FALSE)
 ####Database creation####
 
 ##year##
@@ -156,18 +158,26 @@ HPC_my$MonthAbb <-factor(HPC_my$MonthAbb,
                                        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
 ##Day##
 HPC_d<-HPC_2 %>% select(Year,month,months,Day,WeekDay,Global_powerKwh,Global_active_powerKWh,Global_reactive_powerKWh,Sub_metering1KW,Sub_metering2KW,Sub_metering3KW)%>%
-  group_by(Year,Day)%>%
+  group_by(Year,month,Day)%>%
   filter(Year!=2006)%>%
   summarise_at(vars(Global_powerKwh,Global_active_powerKWh,Global_reactive_powerKWh,Sub_metering1KW,Sub_metering2KW,Sub_metering3KW),
                funs(sum))
 ##Hour##
 HPC_hour<-HPC_2 %>% select(Year,month,months,Day,Hour,WeekDay,Global_powerKwh,Global_active_powerKWh,Global_reactive_powerKWh,Sub_metering1KW,Sub_metering2KW,Sub_metering3KW)%>%
-  group_by(Year,Hour)%>%
+  group_by(Year,month,Day,Hour)%>%
   filter(Year!=2006)%>%
   summarise_at(vars(Global_powerKwh,Global_active_powerKWh,Global_reactive_powerKWh,Sub_metering1KW,Sub_metering2KW,Sub_metering3KW),
                funs(sum))
 
 ##Seasonal##
+
+HPC_2$Season <-factor(HPC_2$Season,
+                           levels = c("Winter","Spring","Summer","Autumn"))
+HPC_season<-HPC_2 %>% select(Year,month,months,Season,Day,Hour,WeekDay,Global_powerKwh,Global_active_powerKWh,Global_reactive_powerKWh,Sub_metering1KW,Sub_metering2KW,Sub_metering3KW)%>%
+  group_by(Year,Season)%>%
+  filter(Year!=2006)%>%
+  summarise_at(vars(Global_powerKwh,Global_active_powerKWh,Global_reactive_powerKWh,Sub_metering1KW,Sub_metering2KW,Sub_metering3KW),
+               funs(sum))
 
 ##PLOTS##
 ####Year####
@@ -249,7 +259,7 @@ ggplot(data=HPC_d, aes(HPC_d$Day))+
   ggtitle("Global Consumption Daily by Sub Metering")+
   facet_wrap(facets = Year ~ .)
 ####Hour####
-####Reactive and Active power by Hour####
+##Reactive and Active power by Hour##
 ggplot(data=HPC_hour, aes(HPC_hour$Hour))+
   geom_line(aes(y=HPC_hour$Global_reactive_powerKWh,color="Global Reactive power"))+
   geom_line(aes(y=HPC_hour$Global_active_powerKWh,color="Global Active power"))+
@@ -295,3 +305,28 @@ ggplot(data=HPC_hour, aes(HPC_hour$Hour))+
   ylab("Global Consumption in KW/h")+
   ggtitle("Global Consumption Hourly by Sub Metering")+
   facet_wrap(facets = Year ~ .)
+
+####Season####
+##Reactive and Active by Season##
+ggplot(data=HPC_season, aes(HPC_season$Season))+
+  geom_line(aes(y=HPC_season$Global_reactive_powerKWh,color="Global Reactive power"))+
+  geom_line(aes(y=HPC_season$Global_active_powerKWh,color="Global Active power"))+
+  theme_bw()+
+  xlab("Month")+
+  ylab("Global Active and Reactive in KW/h")+
+  ggtitle("Global Active and Reactive by Season")+
+  facet_wrap(facets = Year ~ .)
+####TimeSeries####
+
+install.packages("forecast")
+library("forecast")
+##month##
+HPCMONTHLY <- ts(HPC_my, frequency = 12, start=c(2007,1),end=c(2011))
+HPCMONTHLY
+plot(HPCMONTHLY)
+HPCMONTHLYDesc<-decompose(HPCMONTHLY[,3])
+plot(HPCMONTHLYDesc)
+
+HPCDAILY<- ts(HPC_d, frequency= 365, start=c(2007,1))
+HPCDAILY
+plot(HPCDAILY)
